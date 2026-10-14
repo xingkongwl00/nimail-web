@@ -1,22 +1,26 @@
 #!/usr/bin/env node
 /**
- * nimail-web —— 临时邮箱网站
+ * mailtm-web —— 临时邮箱网站（mail.tm 版）
  * 零第三方依赖：只需要 Node.js >= 18，直接 `node server.js` 即可运行。
  *
  * 架构说明：
- *   NiMail 官方 API (https://www.nimail.cn/api/*) 不返回 CORS 头，
+ *   mail.tm API (https://api.mail.tm) 不返回 CORS 头，
  *   浏览器无法跨域直连，因此由本服务做后端代理：
- *     前端  ->  /api/*  ->  https://www.nimail.cn/api/*
+ *     前端  ->  /api/*  ->  https://api.mail.tm/*
+ *   前端把登录拿到的 JWT 放在 Authorization: Bearer <token> 头上，
+ *   本服务原样透传给上游。
  *
- * 代理接口一览：
- *   POST /api/apply           申请邮箱        { mail }
- *   POST /api/mails           邮件列表        { mail, time }
- *   GET  /api/mail/:mail/:id  邮件正文(raw-html)
- *   POST /api/delmail         删除邮件        { delMail: "id1,id2" }
- *   POST /api/destroy         销毁邮箱        { mail }
- *   POST /api/test            发送测试邮件     { mail }
- *   GET  /api/download/:mail/:id      下载单封邮件原文件
- *   GET  /api/download/:mail/all.zip  打包下载全部邮件
+ * 代理接口一览（详见 https://docs.mail.tm）：
+ *   GET    /api/domains            可用域名列表
+ *   POST   /api/accounts           创建账号        { address, password }
+ *   POST   /api/token              登录换取 JWT     { address, password }
+ *   GET    /api/me                 当前账号信息（需 Bearer）
+ *   GET    /api/messages           邮件列表（需 Bearer，支持 ?page=）
+ *   GET    /api/messages/:id       邮件详情（需 Bearer）
+ *   PATCH  /api/messages/:id       标记已读（需 Bearer）
+ *   DELETE /api/messages/:id       删除邮件（需 Bearer）
+ *   GET    /api/sources/:id        邮件原始源（需 Bearer）
+ *   DELETE /api/account/:id        注销账号（需 Bearer）
  */
 
 const http = require("http");
@@ -27,21 +31,13 @@ const { URL } = require("url");
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
-const NIMAIL = "https://www.nimail.cn";
+const MAILTM = "https://api.mail.tm";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const UPSTREAM_TIMEOUT = 20000;
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-const NIMAIL_HEADERS = {
-  origin: NIMAIL,
-  referer: NIMAIL + "/",
-  "user-agent": UA,
-  accept: "application/json",
-  "accept-language": "zh-CN,zh",
-};
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -61,91 +57,85 @@ function log(...args) {
   console.log(new Date().toISOString(), ...args);
 }
 
-/** 把请求体原样转发给 NiMail，返回 { status, headers, buffer }（自动跟随最多 3 次跳转） */
-function forward(method, apiPath, { form, raw } = {}, depth = 0) {
+/**
+ * 通用上游转发：原样透传 method / body / Authorization，自动跟随跳转。
+ * 返回 { status, headers, buffer }
+ */
+function forward(method, apiPath, { body, auth, contentType, depth = 0 } = {}) {
   return new Promise((resolve, reject) => {
-    const target = new URL(NIMAIL + apiPath);
-    const opts = {
-      method,
-      hostname: target.hostname,
-      port: 443,
-      path: target.pathname + target.search,
-      headers: { ...NIMAIL_HEADERS },
+    const target = new URL(MAILTM + apiPath);
+    const headers = {
+      accept: "application/json",
+      "accept-language": "zh-CN,zh",
+      "user-agent": UA,
     };
-    if (form) {
-      const body = new URLSearchParams(form).toString();
-      opts.headers["content-type"] = "application/x-www-form-urlencoded";
-      opts.headers["content-length"] = Buffer.byteLength(body);
-      opts._body = body;
-    } else if (raw !== undefined) {
-      opts.headers["content-length"] = Buffer.byteLength(raw);
-      opts._body = raw;
+    if (contentType) headers["content-type"] = contentType;
+    if (auth) headers["authorization"] = auth;
+    let payload;
+    if (body !== undefined) {
+      payload = typeof body === "string" ? body : JSON.stringify(body);
+      headers["content-length"] = Buffer.byteLength(payload);
     }
-    const req = https.request(opts, (res) => {
-      // 跟随跳转（GET 类请求，如 nginx 强制 https / 非 www 归一化）
-      if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location && depth < 3) {
-        res.resume();
-        const next = new URL(res.headers.location, NIMAIL);
-        return resolve(forward(method, next.pathname + next.search, { form, raw }, depth + 1));
+    const req = https.request(
+      {
+        method,
+        hostname: target.hostname,
+        port: 443,
+        path: target.pathname + target.search,
+        headers,
+      },
+      (res) => {
+        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location && depth < 3) {
+          res.resume();
+          const next = new URL(res.headers.location, MAILTM);
+          return resolve(forward(method, next.pathname + next.search, { body, auth, contentType, depth: depth + 1 }));
+        }
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () =>
+          resolve({ status: res.statusCode, headers: res.headers, buffer: Buffer.concat(chunks) })
+        );
       }
-      const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () =>
-        resolve({ status: res.statusCode, headers: res.headers, buffer: Buffer.concat(chunks) })
-      );
-    });
+    );
     req.setTimeout(UPSTREAM_TIMEOUT, () => req.destroy(new Error("upstream timeout")));
     req.on("error", reject);
-    if (opts._body) req.write(opts._body);
+    if (payload !== undefined) req.write(payload);
     req.end();
   });
 }
 
 function sendJson(res, status, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
-  });
-  res.end(body);
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.end(JSON.stringify(obj));
 }
 
-/** 把上游响应原样透传给前端（保留 content-type，失败时不丢信息） */
+/** 把上游响应原样透传给前端（保留 content-type） */
 function pipeUpstream(res, r) {
-  const ct = r.headers["content-type"] || "application/json; charset=utf-8";
-  const headers = { "content-type": ct, "cache-control": "no-store" };
+  const headers = { "content-type": r.headers["content-type"] || "application/json; charset=utf-8", "cache-control": "no-store" };
   if (r.headers["content-disposition"]) headers["content-disposition"] = r.headers["content-disposition"];
   res.writeHead(r.status, headers);
   res.end(r.buffer);
 }
 
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let size = 0;
-    req.on("data", (c) => {
-      size += c.length;
-      if (size > 1e6) reject(new Error("body too large"));
-      chunks.push(c);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-}
-
 async function readJsonBody(req) {
-  const text = await readBody(req);
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > 1e6) throw new Error("body too large");
+    chunks.push(c);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
   if (!text) return {};
   try {
     return JSON.parse(text);
   } catch {
-    const params = new URLSearchParams(text);
-    return Object.fromEntries(params);
+    return {};
   }
 }
 
 /** 发送静态文件 */
-function serveStatic(req, res, pathname) {
+function serveStatic(res, pathname) {
   let rel = decodeURIComponent(pathname);
   if (rel === "/" || rel === "") rel = "/index.html";
   const file = path.normalize(path.join(PUBLIC_DIR, rel));
@@ -169,60 +159,89 @@ function serveStatic(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = u.pathname;
+  const auth = req.headers["authorization"] || "";
 
   try {
-    // ---------- API 代理 ----------
-    if (req.method === "POST" && pathname === "/api/apply") {
-      const { mail } = await readJsonBody(req);
-      if (!mail || !/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+$/.test(mail)) {
-        return sendJson(res, 400, { success: "false", message: "邮箱地址不合法" });
+    // ---------- 域名列表（无需登录） ----------
+    if (req.method === "GET" && pathname === "/api/domains") {
+      return pipeUpstream(res, await forward("GET", "/domains"));
+    }
+
+    // ---------- 创建账号 ----------
+    if (req.method === "POST" && pathname === "/api/accounts") {
+      const { address, password } = await readJsonBody(req);
+      if (!address || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
+        return sendJson(res, 400, { message: "邮箱地址不合法" });
       }
-      const r = await forward("POST", "/api/applymail", { form: { mail } });
-      return pipeUpstream(res, r);
+      if (!password || String(password).length < 8) {
+        return sendJson(res, 400, { message: "密码至少 8 位" });
+      }
+      return pipeUpstream(res, await forward("POST", "/accounts", {
+        body: { address, password },
+        contentType: "application/json",
+      }));
     }
 
-    if (req.method === "POST" && pathname === "/api/mails") {
-      const { mail, time } = await readJsonBody(req);
-      if (!mail) return sendJson(res, 400, { success: "false", message: "缺少 mail 参数" });
-      const r = await forward("POST", "/api/getmails", {
-        form: { mail, time: time || 0, _: Date.now() },
-      });
-      return pipeUpstream(res, r);
+    // ---------- 登录换 token ----------
+    if (req.method === "POST" && pathname === "/api/token") {
+      const { address, password } = await readJsonBody(req);
+      if (!address || !password) {
+        return sendJson(res, 400, { message: "缺少 address / password" });
+      }
+      return pipeUpstream(res, await forward("POST", "/token", {
+        body: { address, password },
+        contentType: "application/json",
+      }));
     }
 
-    // 邮件正文（raw-html）。URL: /api/mail/<邮箱>/<邮件id>
-    const mailMatch = pathname.match(/^\/api\/mail\/([^/]+)\/([^/]+)$/);
-    if (req.method === "GET" && mailMatch) {
-      const r = await forward("GET", `/api/raw-html/${mailMatch[1]}/${mailMatch[2]}`);
-      return pipeUpstream(res, r);
+    // ---------- 以下接口都需要 Bearer token ----------
+    let m = pathname.match(/^\/api\/messages\/([^/]+)$/);
+    if (m) {
+      if (!auth.toLowerCase().startsWith("bearer ")) {
+        return sendJson(res, 401, { message: "未登录或登录已过期" });
+      }
+      if (req.method === "GET") {
+        return pipeUpstream(res, await forward("GET", `/messages/${m[1]}`, { auth }));
+      }
+      if (req.method === "DELETE") {
+        return pipeUpstream(res, await forward("DELETE", `/messages/${m[1]}`, { auth }));
+      }
+      if (req.method === "PATCH") {
+        return pipeUpstream(res, await forward("PATCH", `/messages/${m[1]}`, {
+          auth, body: { seen: true }, contentType: "application/merge-patch+json",
+        }));
+      }
     }
 
-    if (req.method === "POST" && pathname === "/api/delmail") {
-      const { delMail } = await readJsonBody(req);
-      if (!delMail) return sendJson(res, 400, { success: "false", message: "缺少 delMail 参数" });
-      const r = await forward("POST", "/api/delmail", { form: { delMail, _: Date.now() } });
-      return pipeUpstream(res, r);
+    m = pathname.match(/^\/api\/sources\/([^/]+)$/);
+    if (m && req.method === "GET") {
+      if (!auth.toLowerCase().startsWith("bearer ")) {
+        return sendJson(res, 401, { message: "未登录或登录已过期" });
+      }
+      return pipeUpstream(res, await forward("GET", `/sources/${m[1]}`, { auth }));
     }
 
-    if (req.method === "POST" && pathname === "/api/destroy") {
-      const { mail } = await readJsonBody(req);
-      if (!mail) return sendJson(res, 400, { success: "false", message: "缺少 mail 参数" });
-      const r = await forward("POST", "/api/destroymail", { form: { mail, _: Date.now() } });
-      return pipeUpstream(res, r);
+    m = pathname.match(/^\/api\/account\/([^/]+)$/);
+    if (m && req.method === "DELETE") {
+      if (!auth.toLowerCase().startsWith("bearer ")) {
+        return sendJson(res, 401, { message: "未登录或登录已过期" });
+      }
+      return pipeUpstream(res, await forward("DELETE", `/accounts/${m[1]}`, { auth }));
     }
 
-    if (req.method === "POST" && pathname === "/api/test") {
-      const { mail } = await readJsonBody(req);
-      if (!mail) return sendJson(res, 400, { success: "false", message: "缺少 mail 参数" });
-      const r = await forward("POST", "/api/test", { form: { mail, _: Date.now() } });
-      return pipeUpstream(res, r);
+    if (req.method === "GET" && pathname === "/api/me") {
+      if (!auth.toLowerCase().startsWith("bearer ")) {
+        return sendJson(res, 401, { message: "未登录或登录已过期" });
+      }
+      return pipeUpstream(res, await forward("GET", "/me", { auth }));
     }
 
-    // 下载原文件：/api/download/<邮箱>/<id> 或 /api/download/<邮箱>/all.zip
-    const dlMatch = pathname.match(/^\/api\/download\/([^/]+)\/([^/]+)$/);
-    if (req.method === "GET" && dlMatch) {
-      const r = await forward("GET", `/api/download/${dlMatch[1]}/${dlMatch[2]}`);
-      return pipeUpstream(res, r);
+    if (req.method === "GET" && pathname === "/api/messages") {
+      if (!auth.toLowerCase().startsWith("bearer ")) {
+        return sendJson(res, 401, { message: "未登录或登录已过期" });
+      }
+      const q = u.search || "";
+      return pipeUpstream(res, await forward("GET", `/messages${q}`, { auth }));
     }
 
     // ---------- 健康检查 ----------
@@ -231,17 +250,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---------- 静态资源 ----------
-    if (req.method === "GET") return serveStatic(req, res, pathname);
+    if (req.method === "GET") return serveStatic(res, pathname);
 
     res.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
     res.end("Method Not Allowed");
   } catch (e) {
     log("error:", e.message);
-    sendJson(res, 502, { success: "false", message: "上游服务异常: " + e.message });
+    sendJson(res, 502, { message: "上游服务异常: " + e.message });
   }
 });
 
 server.listen(PORT, HOST, () => {
-  log(`nimail-web 已启动: http://localhost:${PORT}`);
-  log(`上游代理目标: ${NIMAIL}`);
+  log(`mailtm-web 已启动: http://localhost:${PORT}`);
+  log(`上游代理目标: ${MAILTM}`);
 });

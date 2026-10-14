@@ -1,11 +1,12 @@
 {
-  "name": "nimail-web",
-  "version": "1.0.0",
-  "description": "临时邮箱网站：基于 NiMail 开放 API 的零依赖 Node.js 代理实现，支持申请/复制/查看临时邮箱与实时收件",
+  "name": "mailtm-web",
+  "version": "2.0.0",
+  "description": "临时邮箱网站：基于 mail.tm 开放 API 的零依赖 Node.js 代理实现，支持一键创建、复制、实时查看收件箱与邮件正文",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node ui-test.js"
   },
   "engines": {
     "node": ">=18"
@@ -13,8 +14,8 @@
   "keywords": [
     "temp-mail",
     "临时邮箱",
-    "10分钟邮箱",
-    "nimail",
+    "mail.tm",
+    "匿名邮箱",
     "零依赖",
     "proxy"
   ],

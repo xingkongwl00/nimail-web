@@ -109,6 +109,20 @@ a:hover { text-decoration: underline; }
 }
 .apply-tip { margin-top: 16px; color: var(--ink-2); font-size: 13px; }
 
+/* 域名选择 */
+.domain-select {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 15px;
+  background: #fff;
+  color: var(--ink);
+  min-height: 52px;
+  cursor: pointer;
+  outline: none;
+}
+.domain-select:focus { border-color: var(--brand); }
+
 /* ---------- 按钮 ---------- */
 .btn {
   display: inline-flex;
@@ -175,30 +189,21 @@ a:hover { text-decoration: underline; }
   word-break: break-all;
   color: var(--ink);
 }
-.countdown-line {
+.status-line {
   margin-top: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   font-size: 14px;
   color: var(--ink-2);
 }
-.countdown {
-  font-family: Consolas, monospace;
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--ok);
-}
-.countdown.warn { color: var(--warn); }
-.countdown.danger { color: var(--danger); animation: blink 1s steps(2) infinite; }
-@keyframes blink { 50% { opacity: .35; } }
-.expired-badge {
-  background: var(--danger);
-  color: #fff;
-  font-size: 12px;
-  border-radius: 999px;
-  padding: 3px 10px;
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, .15);
 }
 
 /* ---------- 信息栏 ---------- */
@@ -388,4 +393,8 @@ a:hover { text-decoration: underline; }
   .modal-foot .btn { flex: 1; }
   .mail-address-line { flex-direction: column; }
   .mail-address-line .btn-copy { width: 100%; }
+  .apply-row { flex-direction: column; }
+  .apply-row .input-group { max-width: none; width: 100%; }
+  .apply-row .domain-select { width: 100%; }
+  .apply-row .btn-lg { width: 100%; }
 }
