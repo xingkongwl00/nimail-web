@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>临时邮箱 · 10分钟邮箱 · NiMail Web</title>
+  <meta name="description" content="免费临时邮箱服务：一键申请、复制邮箱地址、实时查看收件箱与邮件内容，10分钟有效期，保护个人隐私。" />
+  <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;📬&lt;/text&gt;&lt;/svg&gt;" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- 顶部导航 -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-icon">📬</span>
+        <span class="brand-name">NiMail <em>Web</em></span>
+      </div>
+      <nav class="topnav">
+        <a href="https://www.nimail.cn/" target="_blank" rel="noopener">官方站点</a>
+        <a href="https://www.nimail.cn/blog/best-articles/nimail%e4%b8%b4%e6%97%b6%e9%82%ae%e7%ae%b1api%e5%af%b9%e6%8e%a5%e6%96%87%e6%a1%88/" target="_blank" rel="noopener">API 文档</a>
+        <a id="ghLink" href="#" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- ============ 未持有邮箱：申请区 ============ -->
+    <section id="applySection" class="card apply-card">
+      <h1 class="hero-title">免费临时邮箱</h1>
+      <p class="hero-sub">一键申请 · 即收即看 · 10 分钟有效期 · 无需注册</p>
+
+      <div class="apply-row">
+        <div class="input-group">
+          <input id="customUser" type="text" maxlength="24" placeholder="自定义邮箱名（可选，仅字母数字）" autocomplete="off" />
+          <span class="input-suffix">@nimail.cn</span>
+        </div>
+        <button id="btnApply" class="btn btn-primary btn-lg" type="button">
+          <span class="btn-icon">✉️</span> 申请临时邮箱
+        </button>
+      </div>
+      <p class="apply-tip">留空则自动生成随机邮箱名；申请后请在 10 分钟内完成收信。</p>
+    </section>
+
+    <!-- ============ 已持有邮箱：主面板 ============ -->
+    <section id="mailPanel" class="card mail-panel hidden">
+      <!-- 邮箱地址 + 复制 -->
+      <div class="mail-address-block">
+        <div class="mail-label">当前临时邮箱</div>
+        <div class="mail-address-line">
+          <code id="mailAddress" class="mail-address">--</code>
+          <button id="btnCopy" class="btn btn-copy" type="button" title="复制邮箱地址">
+            <span id="copyIcon">📋</span> <span id="copyText">复制</span>
+          </button>
+        </div>
+        <div class="countdown-line">
+          <span class="cd-label">剩余有效期</span>
+          <span id="countdown" class="countdown">--:--</span>
+          <span id="expiredBadge" class="expired-badge hidden">已到期</span>
+        </div>
+      </div>
+
+      <!-- 邮箱信息 -->
+      <div class="info-grid" id="infoGrid">
+        <div class="info-item"><span class="info-k">创建时间</span><span class="info-v" id="infoCreated">--</span></div>
+        <div class="info-item"><span class="info-k">到期时间</span><span class="info-v" id="infoExpire">--</span></div>
+        <div class="info-item"><span class="info-k">收到邮件</span><span class="info-v" id="infoCount">0 封</span></div>
+        <div class="info-item"><span class="info-k">邮箱状态</span><span class="info-v" id="infoStatus">--</span></div>
+      </div>
+
+      <!-- 操作栏 -->
+      <div class="toolbar">
+        <button id="btnRefresh" class="btn" type="button"><span class="btn-icon">🔄</span> 刷新收件箱</button>
+        <button id="btnTest" class="btn" type="button"><span class="btn-icon">🧪</span> 发送测试邮件</button>
+        <button id="btnRenew" class="btn" type="button"><span class="btn-icon">⏱️</span> 续期十分钟</button>
+        <button id="btnRandom" class="btn" type="button"><span class="btn-icon">🎲</span> 换一个邮箱</button>
+        <button id="btnDestroy" class="btn btn-danger" type="button"><span class="btn-icon">🗑️</span> 销毁邮箱</button>
+      </div>
+
+      <!-- 收件箱 -->
+      <div class="inbox-block">
+        <div class="inbox-head">
+          <h2>收件箱 <span id="inboxCount" class="inbox-count">0</span></h2>
+          <div class="inbox-actions">
+            <label class="check-all"><input type="checkbox" id="checkAll" /> 全选</label>
+            <button id="btnDelSel" class="btn btn-sm" type="button">删除选中</button>
+            <button id="btnDlAll" class="btn btn-sm" type="button">打包下载</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="inbox-table">
+            <thead>
+              <tr>
+                <th class="col-check"></th>
+                <th class="col-from">发件人</th>
+                <th class="col-subject">主题</th>
+                <th class="col-time">时间</th>
+                <th class="col-size">大小</th>
+                <th class="col-atta">附件</th>
+              </tr>
+            </thead>
+            <tbody id="inboxBody">
+              <tr id="emptyRow"><td colspan="6" class="empty-cell">你的邮件将在此处呈现</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="auto-refresh-tip">每 7.5 秒自动刷新 · 邮件仅保留 10 分钟，请及时查看</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 邮件详情弹窗 ============ -->
+  <div id="mailModal" class="modal hidden">
+    <div class="modal-mask" data-close="1"></div>
+    <div class="modal-box">
+      <div class="modal-head">
+        <div class="modal-title" id="modalTitle">邮件内容</div>
+        <button class="modal-close" id="modalClose" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-meta" id="modalMeta"></div>
+      <iframe id="mailFrame" class="mail-frame" sandbox="allow-same-origin" title="邮件正文"></iframe>
+      <div class="modal-foot">
+        <button id="btnCopyBody" class="btn" type="button"><span class="btn-icon">📋</span> 复制正文</button>
+        <button id="btnOpenRaw" class="btn" type="button" target="_blank"><span class="btn-icon">🪟</span> 新窗口打开</button>
+        <button id="btnDlOne" class="btn" type="button"><span class="btn-icon">💾</span> 下载原文件</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 轻提示 -->
+  <div id="toast" class="toast hidden"></div>
+
+  <footer class="footer">
+    <p>本服务仅用于学习和临时系统测试，严禁用于任何非法、欺诈或违反公序良俗的行为。</p>
+    <p>邮箱与邮件由 <a href="https://www.nimail.cn/" target="_blank" rel="noopener">NiMail</a> 提供 · 本站为零依赖 Node.js 代理实现 · 开源自用，请勿滥用</p>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

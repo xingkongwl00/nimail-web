@@ -1,0 +1,24 @@
+{
+  "name": "nimail-web",
+  "version": "1.0.0",
+  "description": "临时邮箱网站：基于 NiMail 开放 API 的零依赖 Node.js 代理实现，支持申请/复制/查看临时邮箱与实时收件",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "temp-mail",
+    "临时邮箱",
+    "10分钟邮箱",
+    "nimail",
+    "零依赖",
+    "proxy"
+  ],
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}
