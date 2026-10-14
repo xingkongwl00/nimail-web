@@ -2,7 +2,7 @@
 const { chromium } = require("playwright-core");
 
 const EXE = "C:/Users/Administrator/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe";
-const BASE = "http://localhost:3000";
+const BASE = process.env.BASE_URL || "http://localhost:3000";
 
 (async () => {
   const browser = await chromium.launch({ executablePath: EXE, headless: true });
