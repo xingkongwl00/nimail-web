@@ -159,7 +159,18 @@ function serveStatic(res, pathname) {
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = u.pathname;
-  const auth = req.headers["authorization"] || "";
+  // 注意：部分部署平台的反向代理会改写/剥离 Authorization 头，
+  // 因此 token 支持三处来源：X-Auth-Token 头 > ?token= query > Authorization 头
+  function extractAuth() {
+    const h = req.headers["x-auth-token"];
+    if (h && String(h).trim()) return "Bearer " + String(h).trim();
+    const q = u.searchParams.get("token");
+    if (q && q.trim()) return "Bearer " + q.trim();
+    const a = req.headers["authorization"];
+    if (a && a.toLowerCase().startsWith("bearer ")) return a;
+    return "";
+  }
+  const auth = extractAuth();
 
   try {
     // ---------- 域名列表（无需登录） ----------

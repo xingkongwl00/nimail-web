@@ -69,12 +69,17 @@
     toastTimer = setTimeout(function () { toastEl.classList.add("hidden"); }, 2600);
   }
   function authHeaders() {
-    return { "Authorization": "Bearer " + state.token };
+    // 双通道：部分部署平台会改写 Authorization 头，故同时带 X-Auth-Token 与 query token
+    return { "X-Auth-Token": state.token, "Authorization": "Bearer " + state.token };
+  }
+  function withToken(path) {
+    if (!state.token) return path;
+    return path + (path.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(state.token);
   }
   function api(path, opts) {
     opts = opts || {};
     var headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
-    return fetch(path, {
+    return fetch(withToken(path), {
       method: opts.method || "GET",
       headers: headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -366,7 +371,7 @@
       mailFrame.srcdoc = bodyHtml;
       // 标记已读
       if (!m.seen) {
-        fetch("/api/messages/" + encodeURIComponent(id), {
+        fetch(withToken("/api/messages/" + encodeURIComponent(id)), {
           method: "PATCH",
           headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
           body: JSON.stringify({ seen: true }),
@@ -419,7 +424,7 @@
 
   btnDestroy.addEventListener("click", function () {
     if (!confirm("确定销毁当前邮箱吗？销毁后账号与收件箱内容将全部删除。")) return;
-    fetch("/api/account/" + encodeURIComponent(state.id), {
+    fetch(withToken("/api/account/" + encodeURIComponent(state.id)), {
       method: "DELETE", headers: authHeaders(),
     }).then(function (r) {
       if (r.status === 204 || r.ok) {
@@ -439,7 +444,7 @@
     var ids = Array.from(inboxBody.querySelectorAll(".row-check:checked")).map(function (c) { return c.value; });
     if (!ids.length) { toast("请先勾选要删除的邮件", "err"); return; }
     Promise.all(ids.map(function (id) {
-      return fetch("/api/messages/" + encodeURIComponent(id), { method: "DELETE", headers: authHeaders() })
+      return fetch(withToken("/api/messages/" + encodeURIComponent(id)), { method: "DELETE", headers: authHeaders() })
         .then(function (r) { return { id: id, ok: r.ok }; });
     })).then(function (results) {
       var okCount = 0;
@@ -462,7 +467,7 @@
   btnDelOne.addEventListener("click", function () {
     if (!currentMail) return;
     if (!confirm("确定删除这封邮件吗？")) return;
-    fetch("/api/messages/" + encodeURIComponent(currentMail.id), { method: "DELETE", headers: authHeaders() })
+    fetch(withToken("/api/messages/" + encodeURIComponent(currentMail.id)), { method: "DELETE", headers: authHeaders() })
       .then(function (r) {
         if (r.ok) {
           state.mails.delete(currentMail.id);
